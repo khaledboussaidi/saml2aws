@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -72,6 +73,15 @@ func (ac *Client) follow(ctx context.Context, req *http.Request) (string, error)
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to build document from response")
+	}
+
+	// Check for authentication errors first
+	if msg, ok := docIsLoginFail(doc); ok {
+		logger.WithField("type", "authentication-error").Debug("doc detect")
+		return "", fmt.Errorf(msg)
+	} else if msg, ok := docIsAccountLocked(doc); ok {
+		logger.WithField("type", "account-locked").Debug("doc detect")
+		return "", fmt.Errorf(msg)
 	}
 
 	var handler func(context.Context, *goquery.Document, *url.URL) (context.Context, *http.Request, error)
@@ -356,6 +366,27 @@ func docIsRefresh(doc *goquery.Document) bool {
 
 func extractSAMLResponse(doc *goquery.Document) (v string, ok bool) {
 	return doc.Find("input[name=\"SAMLResponse\"]").Attr("value")
+}
+
+// docIsLoginFail checks for login authentication failures
+func docIsLoginFail(doc *goquery.Document) (v string, ok bool) {
+	isLoginFail := doc.Find(".ping-error").Size() >= 1
+	if isLoginFail {
+		errorText := doc.Find(".ping-error").Text()
+		return strings.Join(strings.Fields(errorText), " "), true
+	}
+	return "", false
+
+}
+
+// docIsAccountLocked checks if user account is locked or blocked
+func docIsAccountLocked(doc *goquery.Document) (v string, ok bool) {
+	isAccountLocked := doc.Find(".window.settings.blocked").Size() > 0
+	if isAccountLocked {
+		errorText := strings.TrimSpace(doc.Find(".window.settings.blocked .error-text .text").Text())
+		return strings.Join(strings.Fields(errorText), " "), true
+	}
+	return "", false
 }
 
 // ensures given url is an absolute URL. if not, it will be combined with the base URL
