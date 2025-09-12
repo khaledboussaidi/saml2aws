@@ -179,7 +179,12 @@ func (ac *Client) handleCheckWebAuthn(ctx context.Context, doc *goquery.Document
 	return ctx, req, err
 }
 
+// Improved OTP handling in handleOTP function
 func (ac *Client) handleOTP(ctx context.Context, doc *goquery.Document, requestURL *url.URL) (context.Context, *http.Request, error) {
+	loginDetails, ok := ctx.Value(ctxKey("login")).(*creds.LoginDetails)
+	if !ok {
+		return ctx, nil, fmt.Errorf("no context value for 'login'")
+	}
 	form, err := page.NewFormFromDocument(doc, "#otp-form")
 	if err != nil {
 		return ctx, nil, errors.Wrap(err, "error extracting OTP form")
@@ -191,9 +196,20 @@ func (ac *Client) handleOTP(ctx context.Context, doc *goquery.Document, requestU
 			break
 		}
 	}
-
-	token := prompter.StringRequired("Enter passcode")
-	form.Values.Set("otp", token)
+	// Improved MFA token handling with retry capability
+	var mfaToken string
+	if loginDetails.MFAToken != "" {
+		mfaToken = loginDetails.MFAToken
+		// Clear the token to allow for retry on failure
+		loginDetails.MFAToken = ""
+	} else {
+		mfaToken = prompter.StringRequired("Enter passcode")
+		if mfaToken == "" {
+			// User cancelled (Ctrl+C) or provided empty input
+			return ctx, nil, fmt.Errorf("OTP entry cancelled by user")
+		}
+	}
+	form.Values.Set("otp", mfaToken)
 	req, err := form.BuildRequest()
 	return ctx, req, err
 }
