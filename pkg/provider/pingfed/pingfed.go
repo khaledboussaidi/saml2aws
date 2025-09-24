@@ -234,7 +234,8 @@ func (ac *Client) handleSwipe(ctx context.Context, doc *goquery.Document, _ *url
 	for {
 		time.Sleep(3 * time.Second)
 
-		res, err := ac.client.Do(req)
+		clonedReq := req.Clone(req.Context())
+		res, err := ac.client.Do(clonedReq)
 		if err != nil {
 			return ctx, nil, errors.Wrap(err, "error polling swipe status")
 		}
